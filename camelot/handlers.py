@@ -3,7 +3,7 @@
 import os
 import sys
 
-from PyPDF2 import PdfFileReader, PdfFileWriter
+from PyPDF2 import PdfReader, PdfWriter
 
 from .core import TableList
 from .parsers import Stream, Lattice
@@ -70,7 +70,8 @@ class PDFHandler(object):
         if pages == "1":
             page_numbers.append({"start": 1, "end": 1})
         else:
-            infile = PdfFileReader(open(filepath, "rb"), strict=False)
+            instream = open(filepath, "rb")
+            infile = PdfFileReader(instream, strict=False)
             if infile.isEncrypted:
                 infile.decrypt(self.password)
             if pages == "all":
@@ -84,6 +85,7 @@ class PDFHandler(object):
                         page_numbers.append({"start": int(a), "end": int(b)})
                     else:
                         page_numbers.append({"start": int(r), "end": int(r)})
+            instream.close()
         P = []
         for p in page_numbers:
             P.extend(range(p["start"], p["end"] + 1))
@@ -103,14 +105,14 @@ class PDFHandler(object):
 
         """
         with open(filepath, "rb") as fileobj:
-            infile = PdfFileReader(fileobj, strict=False)
-            if infile.isEncrypted:
+            infile = PdfReader(fileobj, strict=False)
+            if infile.is_encrypted:
                 infile.decrypt(self.password)
-            fpath = os.path.join(temp, "page-{0}.pdf".format(page))
+            fpath = os.path.join(temp, f"page-{page}.pdf")
             froot, fext = os.path.splitext(fpath)
-            p = infile.getPage(page - 1)
-            outfile = PdfFileWriter()
-            outfile.addPage(p)
+            p = infile.pages[page - 1]
+            outfile = PdfWriter()
+            outfile.add_page(p)
             with open(fpath, "wb") as f:
                 outfile.write(f)
             layout, dim = get_page_layout(fpath)
@@ -122,10 +124,11 @@ class PDFHandler(object):
             if rotation != "":
                 fpath_new = "".join([froot.replace("page", "p"), "_rotated", fext])
                 os.rename(fpath, fpath_new)
-                infile = PdfFileReader(open(fpath_new, "rb"), strict=False)
+                instream = open(fpath_new, "rb")
+                infile = PdfFileReader(instream, strict=False)
                 if infile.isEncrypted:
                     infile.decrypt(self.password)
-                outfile = PdfFileWriter()
+                outfile = PdfWriter()
                 p = infile.getPage(0)
                 if rotation == "anticlockwise":
                     p.rotateClockwise(90)
@@ -134,6 +137,7 @@ class PDFHandler(object):
                 outfile.addPage(p)
                 with open(fpath, "wb") as f:
                     outfile.write(f)
+                instream.close()
 
     def parse(
         self, flavor="lattice", suppress_stdout=False, layout_kwargs={}, **kwargs
@@ -163,9 +167,7 @@ class PDFHandler(object):
         with TemporaryDirectory() as tempdir:
             for p in self.pages:
                 self._save_page(self.filepath, p, tempdir)
-            pages = [
-                os.path.join(tempdir, "page-{0}.pdf".format(p)) for p in self.pages
-            ]
+            pages = [os.path.join(tempdir, f"page-{p}.pdf") for p in self.pages]
             parser = Lattice(**kwargs) if flavor == "lattice" else Stream(**kwargs)
             for p in pages:
                 t = parser.extract_tables(
